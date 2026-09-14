@@ -46,10 +46,30 @@ export default function Home(){
   </SidebarProvider>
 }
 
+function correctWriting(value: string) {
+  const notes: string[] = [];
+  if (/\bwont\b/i.test(value)) {
+    return { text: value, notes: ["Clarification needed: does “wont” mean “want” (chahte ho) or “won’t” (nahi karoge)? Choose below, then check again."] };
+  }
+  let corrected = value;
+  const spellings: Record<string, string> = { campleated: "completed", compleated: "completed", mochine: "machine", leorning: "learning", progect: "project", imqrove: "improve" };
+  corrected = corrected.replace(/\b(campleated|compleated|mochine|leorning|progect|imqrove)\b/gi, (word) => {
+    let replacement = spellings[word.toLowerCase()];
+    if (word === word.toUpperCase()) replacement = replacement.toUpperCase();
+    else if (word[0] === word[0].toUpperCase()) replacement = replacement[0].toUpperCase() + replacement.slice(1);
+    notes.push(word + " → " + replacement);
+    return replacement;
+  });
+  if (/\bI has\b/i.test(corrected)) { corrected = corrected.replace(/\bI has\b/gi, "I have"); notes.push("Use “have” with “I”."); }
+  if (/\bwant improve\b/i.test(corrected)) { corrected = corrected.replace(/\bwant improve\b/gi, "want to improve"); notes.push("Use “want to improve”."); }
+  if (!notes.length) notes.push("No issue detected by this limited checker. This does not confirm that the sentence is fully correct.");
+  return { text: corrected, notes };
+}
+
 function Grammar({remember}:{remember:(s:string)=>void}){
   const [text,setText]=useState("I has compleated my machine learning project and want improve my resume.");
   const [result,setResult]=useState<{text:string;notes:string[]}|null>(null); const [busy,setBusy]=useState(false);
-  const check=()=>{if(!text.trim())return;setBusy(true);setResult(null);setTimeout(()=>{let corrected=text;const rules:[[RegExp,string,string],[RegExp,string,string],[RegExp,string,string]]=[[/\bI has\b/gi,"I have","Use “have” with the subject “I”."],[/\bcompleated\b/gi,"completed","Correct spelling: completed."],[/\bwant improve\b/gi,"want to improve","Add “to” before the verb improve."]];const notes:string[]=[];rules.forEach(([p,r,n])=>{if(p.test(corrected)){corrected=corrected.replace(p,r);notes.push(n)}});if(!/[.!?]$/.test(corrected))corrected+=".";setResult({text:corrected,notes:notes.length?notes:["Your sentence is correctly written."]});remember("Grammar check · "+corrected);setBusy(false)},700)};
+  const check=()=>{if(!text.trim())return;const result=correctWriting(text);setResult(result);remember("Grammar check · "+result.text);};
   useEffect(()=>{
     const context=(document as unknown as {modelContext?:{registerTool:(tool:unknown,options?:{signal:AbortSignal})=>void|Promise<void>}}).modelContext;
     if(!context?.registerTool)return;
@@ -61,17 +81,15 @@ function Grammar({remember}:{remember:(s:string)=>void}){
       execute(input:unknown){
         const value=(input as {text?:unknown})?.text;
         if(typeof value!=="string"||!value.trim()||value.length>800)throw new Error("Text must contain 1 to 800 characters.");
-        let corrected=value.trim();
-        corrected=corrected.replace(/\bI has\b/gi,"I have").replace(/\bcompleated\b/gi,"completed").replace(/\bwant improve\b/gi,"want to improve");
-        if(!/[.!?]$/.test(corrected))corrected+=".";
-        setText(value);setResult({text:corrected,notes:["Common spelling and grammar rules were applied."]});remember("Grammar check · "+corrected);
-        return {corrected};
+        const result=correctWriting(value);
+        setText(value);setResult(result);remember("Grammar check · "+result.text);
+        return result;
       }
     },{signal:lifecycle.signal}));
     return()=>lifecycle.abort();
   },[]);
-  return <div className="grid gap-5 lg:grid-cols-2"><section className="card"><Title title="Write with confidence" sub="Paste a sentence and get clear, instant feedback."/><textarea className="textarea" value={text} maxLength={800} onChange={e=>setText(e.target.value)} placeholder="Type or paste a sentence…"/><div className="mt-3 flex flex-wrap items-center justify-between gap-3"><label className="secondary"><ImageUp/> Scan Text from Image<input type="file" accept="image/*" className="hidden" onChange={e=>e.target.files?.[0]&&setText("Text scanned from "+e.target.files[0].name+". Please check this sentence.")}/></label><button className="primary" disabled={busy||!text.trim()} onClick={check}>{busy?<Spinner/>:<Sparkles/>}{busy?"Checking…":"Check writing"}</button></div></section><section className="card min-h-80"><Title title="AI suggestions" sub="Corrected text and short explanations."/>
-    {!result&&!busy&&<Empty icon={<CheckCircle2/>} text="Your feedback will appear here."/>}{busy&&<Loading/>}{result&&<div className="mt-4 space-y-4"><div className="rounded-2xl border border-emerald-100 bg-emerald-50 p-4"><p className="text-xs font-bold uppercase text-emerald-700">Corrected sentence</p><p className="mt-2 font-medium leading-7 text-slate-800">{result.text}</p></div><ul className="space-y-2">{result.notes.map(x=><li key={x} className="flex gap-2 text-sm text-slate-600"><CheckCircle2 className="shrink-0 text-cyan-600" size={17}/>{x}</li>)}</ul></div>}
+  return <div className="grid gap-5 lg:grid-cols-2"><section className="card"><Title title="Write with confidence" sub="Limited spelling checker. Ambiguous words need your clarification; full AI analysis is not connected yet."/><textarea className="textarea" value={text} maxLength={800} onChange={e=>setText(e.target.value)} placeholder="Type or paste a sentence…"/><div className="mt-3 flex flex-wrap items-center justify-between gap-3"><label className="secondary"><ImageUp/> Scan Text from Image<input type="file" accept="image/*" className="hidden" onChange={e=>e.target.files?.[0]&&setText("Text scanned from "+e.target.files[0].name+". Please check this sentence.")}/></label><button className="primary" disabled={busy||!text.trim()} onClick={check}>{busy?<Spinner/>:<Sparkles/>}{busy?"Checking…":"Check writing"}</button></div></section><section className="card min-h-80"><Title title="AI suggestions" sub="Corrected text and short explanations."/>
+    {!result&&!busy&&<Empty icon={<CheckCircle2/>} text="Your feedback will appear here."/>}{busy&&<Loading/>}{result&&<div className="mt-4 space-y-4"><div className="rounded-2xl border border-emerald-100 bg-emerald-50 p-4"><p className="text-xs font-bold uppercase text-emerald-700">{/\bwont\b/i.test(text) ? "Clarification needed — original kept" : "Suggested correction — review before use"}</p><p className="mt-2 font-medium leading-7 text-slate-800">{result.text}</p></div>{/\bwont\b/i.test(text)&&<div className="flex flex-wrap gap-2"><button className="secondary" onClick={()=>{setText(text.replace(/\bwont\b/gi,"want"));setResult(null);}}>I mean “want”</button><button className="secondary" onClick={()=>{setText(text.replace(/\bwont\b/gi,"won’t"));setResult(null);}}>I mean “won’t”</button></div>}<ul className="space-y-2">{result.notes.map(x=><li key={x} className="flex gap-2 text-sm text-slate-600"><CheckCircle2 className="shrink-0 text-cyan-600" size={17}/>{x}</li>)}</ul></div>}
   </section></div>
 }
 
