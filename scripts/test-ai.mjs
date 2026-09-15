@@ -5,14 +5,21 @@ import assert from 'node:assert/strict';
 import ts from 'typescript';
 import {zipSync,strToU8} from 'fflate';
 const dir=fs.mkdtempSync(path.resolve('.sites-runtime/ai-test-'));
-for(const name of ['ai-contract','grammar-safety','ai-service']){
+for(const name of ['ai-contract','grammar-safety','api-key','ai-service']){
   const source=fs.readFileSync(`lib/${name}.ts`,'utf8').replace("'./ai-contract'","'./ai-contract.mjs'").replace("'./grammar-safety'","'./grammar-safety.mjs'");
   fs.writeFileSync(`${dir}/${name}.mjs`,ts.transpileModule(source,{compilerOptions:{module:ts.ModuleKind.ESNext,target:ts.ScriptTarget.ES2022}}).outputText);
 }
-const route=fs.readFileSync('app/api/assist/route.ts','utf8').replace("import { env } from 'cloudflare:workers';","const env = {};").replace("'@/lib/ai-service'","'./ai-service.mjs'").replace("'@/lib/grammar-safety'","'./grammar-safety.mjs'");
+const route=fs.readFileSync('app/api/assist/route.ts','utf8').replace("import { env } from 'cloudflare:workers';","const env = {};").replace("'@/lib/ai-service'","'./ai-service.mjs'").replace("'@/lib/grammar-safety'","'./grammar-safety.mjs'").replace("'@/lib/api-key'","'./api-key.mjs'");
 fs.writeFileSync(`${dir}/route.mjs`,ts.transpileModule(route,{compilerOptions:{module:ts.ModuleKind.ESNext,target:ts.ScriptTarget.ES2022}}).outputText);
 const {parseInput,extractDocx,perform,resumeScore}=await import(`${dir}/ai-service.mjs`);
 const {POST}=await import(`${dir}/route.mjs`);
+const {normalizeApiKey}=await import(`${dir}/api-key.mjs`);
+assert.equal(normalizeApiKey(' GEMINI_API_KEY="test_copy_\u200Bpaste\n_value" '),'test_copy_paste_value');
+assert.equal(normalizeApiKey('export GOOGLE_API_KEY=“test_key”'),'test_key');
+assert.equal(normalizeApiKey(''),'');
+assert.throws(()=>normalizeApiKey('sk-example'),/OpenAI/);
+assert.throws(()=>normalizeApiKey('AIza••••••'),/hidden key/);
+assert.throws(()=>normalizeApiKey('x'.repeat(2049)),/Too much/);
 const make=(fields,headers={})=>{const form=new FormData();for(const [k,v] of Object.entries(fields))form.set(k,v);return new Request('https://careermate.test/api/assist',{method:'POST',body:form,headers});};
 assert.equal((await POST(make({action:'grammar',text:'Hello'}))).status,503);
 assert.equal((await POST(make({action:'gd',text:'x',topic:'Work'}))).status,400);

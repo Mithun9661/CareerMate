@@ -5,6 +5,7 @@ import { Progress } from '@/components/ui/progress';
 import { Skeleton } from '@/components/ui/skeleton';
 import type { GrammarResult, ResumeResult } from '@/lib/ai-contract';
 import { clarificationFor } from '@/lib/grammar-safety';
+import { normalizeApiKey } from '@/lib/api-key';
 
 type View='grammar'|'resume'|'courses'|'gd';
 type Course={name:string;level:string;duration:string;reason:string};
@@ -41,8 +42,8 @@ export default function AIWorkspace({view,remember}:{view:View;remember:(message
   return <>
     <section className="card mb-5" aria-label="Gemini connection">
       <div className="flex flex-wrap items-center justify-between gap-3"><h2 className="flex items-center gap-2 font-semibold"><KeyRound size={18}/> {connected?'Gemini connected':'Connect Gemini'}</h2>{connected&&<button className="secondary" disabled={!!busy} onClick={()=>{setKey('');setDraftKey('');setConnected(false);setModel('');}}>Disconnect</button>}</div>
-      {!connected?<form className="mt-3 flex flex-wrap gap-3" onSubmit={e=>{e.preventDefault();void run('connect',async()=>{const data=await request('connect',{},draftKey.trim());setKey(draftKey.trim());setDraftKey('');setConnected(true);setModel(data.model);});}}>
-        <input aria-label="Gemini API key" type="password" autoComplete="off" spellCheck={false} maxLength={200} value={draftKey} disabled={!!busy} onChange={e=>setDraftKey(e.target.value)} placeholder="Paste your Gemini API key here" className="input min-w-48"/>
+      {!connected?<form className="mt-3 flex flex-wrap gap-3" onSubmit={e=>{e.preventDefault();void run('connect',async()=>{const cleanKey=normalizeApiKey(draftKey);const data=await request('connect',{},cleanKey);setKey(cleanKey);setDraftKey('');setConnected(true);setModel(data.model);});}}>
+        <input aria-label="Gemini API key" type="password" autoComplete="off" spellCheck={false} maxLength={2048} value={draftKey} disabled={!!busy} onChange={e=>{setDraftKey(e.target.value);setError('');}} placeholder="Paste the full key using Google AI Studio’s Copy button" className="input min-w-48"/>
         <button className="primary" disabled={!!busy}>{busy==='connect'?'Checking…':'Connect Gemini'}</button>
       </form>:<p className="mt-2 text-sm text-emerald-800">Key accepted · {model}. Generation remains subject to your Google quota.</p>}
       <p className="mt-3 text-sm text-slate-500">Your key stays in this page’s memory and is sent securely to the backend and Google. Refreshing clears it. Text and uploads are sent to Gemini for analysis; this app does not save files. { !connected&&'Leave blank to use a server-configured key, if available.'}</p>
