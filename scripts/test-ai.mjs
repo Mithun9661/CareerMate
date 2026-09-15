@@ -1,0 +1,51 @@
+// Compile only the backend modules, then test with mocked Gemini responses.
+import fs from 'node:fs';
+import path from 'node:path';
+import assert from 'node:assert/strict';
+import ts from 'typescript';
+import {zipSync,strToU8} from 'fflate';
+const dir=fs.mkdtempSync(path.resolve('.sites-runtime/ai-test-'));
+for(const name of ['ai-contract','grammar-safety','ai-service']){
+  const source=fs.readFileSync(`lib/${name}.ts`,'utf8').replace("'./ai-contract'","'./ai-contract.mjs'").replace("'./grammar-safety'","'./grammar-safety.mjs'");
+  fs.writeFileSync(`${dir}/${name}.mjs`,ts.transpileModule(source,{compilerOptions:{module:ts.ModuleKind.ESNext,target:ts.ScriptTarget.ES2022}}).outputText);
+}
+const route=fs.readFileSync('app/api/assist/route.ts','utf8').replace("import { env } from 'cloudflare:workers';","const env = {};").replace("'@/lib/ai-service'","'./ai-service.mjs'").replace("'@/lib/grammar-safety'","'./grammar-safety.mjs'");
+fs.writeFileSync(`${dir}/route.mjs`,ts.transpileModule(route,{compilerOptions:{module:ts.ModuleKind.ESNext,target:ts.ScriptTarget.ES2022}}).outputText);
+const {parseInput,extractDocx,perform,resumeScore}=await import(`${dir}/ai-service.mjs`);
+const {POST}=await import(`${dir}/route.mjs`);
+const make=(fields,headers={})=>{const form=new FormData();for(const [k,v] of Object.entries(fields))form.set(k,v);return new Request('https://careermate.test/api/assist',{method:'POST',body:form,headers});};
+assert.equal((await POST(make({action:'grammar',text:'Hello'}))).status,503);
+assert.equal((await POST(make({action:'gd',text:'x',topic:'Work'}))).status,400);
+assert.equal((await POST(make({action:'grammar',text:'Hello'},{origin:'https://evil.test'}))).status,403);
+assert.equal((await POST(make({action:'resume',file:new File(['fake'],'a.pdf')}))).status,415);
+assert.equal((await POST(make({action:'ocr',file:new File([new Uint8Array(5*1024*1024+1)],'a.png')}))).status,413);
+const xml='<w:document><w:body><w:p><w:r><w:t>Student &amp; Engineer</w:t></w:r></w:p><w:p><w:r><w:t>Python and SQL projects</w:t></w:r></w:p></w:body></w:document>';
+const docx=zipSync({'word/document.xml':strToU8(xml)});
+assert.equal(extractDocx(docx),'Student & Engineer\nPython and SQL projects');
+const input=await parseInput(make({action:'resume',file:new File([docx],'a.docx')}));assert.match(input.parts[1].text,/Python/);
+assert.throws(()=>extractDocx(zipSync({'word/document.xml':new Uint8Array(2*1024*1024+1)})),/size/);
+assert.throws(()=>extractDocx(zipSync({'word/document.xml':strToU8('<!DOCTYPE x><x>unsafe</x>')})),/XML/);
+const pdf=await parseInput(make({action:'resume',file:new File(['%PDF-1.7 test'],'a.pdf')}));assert.equal(pdf.parts[1].inlineData.mimeType,'application/pdf');
+const png=await parseInput(make({action:'ocr',file:new File([new Uint8Array([137,80,78,71,13,10,26,10])],'a.png')}));assert.equal(png.parts[1].inlineData.mimeType,'image/png');
+const originalFetch=globalThis.fetch;const fakeKey='test_key_not_a_real_credential';
+const grammar={corrected:'I have completed my project.',changes:[{original:'has',replacement:'have',explanation:'Subject agreement.'}],explanation:'Corrected verb.'};
+globalThis.fetch=async(url,options)=>{assert.equal(options.headers['x-goog-api-key'],fakeKey);assert.ok(!url.includes(fakeKey));return Response.json({candidates:[{finishReason:'STOP',content:{parts:[{text:JSON.stringify(grammar)}]}}]});};
+assert.deepEqual(await perform('grammar',[{text:JSON.stringify({text:'I has completed my project.'})}],fakeKey,'gemini-test'),{...grammar,clarification:''});
+globalThis.fetch=async()=>Response.json({models:[{name:'models/gemini-2.5-flash',supportedGenerationMethods:['generateContent']}]});
+const connection=await POST(make({action:'connect'},{'x-careermate-key':fakeKey}));assert.equal(connection.status,200);assert.equal((await connection.json()).connected,true);
+for(const [status,expected] of [[403,401],[429,429],[500,502]]){globalThis.fetch=async()=>new Response('provider-secret-detail',{status});await assert.rejects(()=>perform('grammar',[],fakeKey,'gemini-test'),e=>e.status===expected&&!e.message.includes('provider-secret'));}
+globalThis.fetch=async()=>Response.json({candidates:[{finishReason:'STOP',content:{parts:[{text:'{}'}]}}]});await assert.rejects(()=>perform('grammar',[],fakeKey,'gemini-test'),e=>e.status===502);
+globalThis.fetch=originalFetch;
+const {clarificationFor,preserveMeaning}=await import(`${dir}/grammar-safety.mjs`);
+const ambiguous='I has campleated my mochine leorning progect and wont imqrove my resume.';
+assert.equal(clarificationFor(ambiguous).corrected,ambiguous);
+assert.equal(clarificationFor("I won't resign."),null);
+const ambiguousReply=await POST(make({action:'grammar',text:ambiguous}));
+assert.equal(ambiguousReply.status,200);assert.match((await ambiguousReply.json()).clarification,/want/);
+const result=(corrected)=>({corrected,changes:[],explanation:'',clarification:''});
+assert.equal(preserveMeaning('I will not resign.',result('I will resign.')).corrected,'I will not resign.');
+assert.equal(preserveMeaning('I have 3 years of experience.',result('I have 5 years of experience.')).corrected,'I have 3 years of experience.');
+assert.equal(preserveMeaning("I don't want to resign.",result('I do not want to resign.')).clarification,'');
+assert.equal(preserveMeaning('I like it.',{...result('I love it.'),clarification:'Do you mean like or love?'}).corrected,'I like it.');
+const score=resumeScore({isResume:true,extractedText:'Python skills',evidence:{contact:'invented',education:'',skills:'Python skills',experienceOrProjects:'',measurableResults:''}});assert.equal(score.score,20);
+console.log('Backend checks passed: validation, upload parsing, DOCX limits, missing key, provider errors, JSON validation, scoring and key handling. Live Gemini was not called.');
