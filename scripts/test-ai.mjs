@@ -38,8 +38,14 @@ const originalFetch=globalThis.fetch;const fakeKey='test_key_not_a_real_credenti
 const grammar={corrected:'I have completed my project.',changes:[{original:'has',replacement:'have',explanation:'Subject agreement.'}],explanation:'Corrected verb.'};
 globalThis.fetch=async(url,options)=>{assert.equal(options.headers['x-goog-api-key'],fakeKey);assert.ok(!url.includes(fakeKey));return Response.json({candidates:[{finishReason:'STOP',content:{parts:[{text:JSON.stringify(grammar)}]}}]});};
 assert.deepEqual(await perform('grammar',[{text:JSON.stringify({text:'I has completed my project.'})}],fakeKey,'gemini-test'),{...grammar,clarification:''});
-globalThis.fetch=async()=>Response.json({models:[{name:'models/gemini-2.5-flash',supportedGenerationMethods:['generateContent']}]});
+const modelList={models:['gemini-2.5-flash','gemini-2.5-flash-lite'].map(name=>({name:'models/'+name,supportedGenerationMethods:['generateContent']}))};
+globalThis.fetch=async(url)=>Response.json(url.includes(':generateContent')?{candidates:[{content:{parts:[{text:'OK'}]}}]}:modelList);
 const connection=await POST(make({action:'connect'},{'x-careermate-key':fakeKey}));assert.equal(connection.status,200);assert.equal((await connection.json()).connected,true);
+const attempted=[];
+globalThis.fetch=async(url)=>{if(!url.includes(':generateContent'))return Response.json(modelList);attempted.push(url);if(url.includes('gemini-2.5-flash:'))return new Response('',{status:404});return Response.json({candidates:[{content:{parts:[{text:'OK'}]}}]});};
+const fallback=await POST(make({action:'connect'},{'x-careermate-key':fakeKey}));assert.equal(fallback.status,200);assert.equal((await fallback.json()).model,'gemini-2.5-flash-lite');assert.equal(attempted.length,2);
+globalThis.fetch=async(url)=>url.includes(':generateContent')?new Response('',{status:404}):Response.json(modelList);
+const unavailable=await POST(make({action:'connect'},{'x-careermate-key':fakeKey}));assert.equal(unavailable.status,503);assert.match((await unavailable.json()).error,/generation returned 404/);
 for(const [status,expected] of [[403,401],[429,429],[500,502]]){globalThis.fetch=async()=>new Response('provider-secret-detail',{status});await assert.rejects(()=>perform('grammar',[],fakeKey,'gemini-test'),e=>e.status===expected&&!e.message.includes('provider-secret'));}
 globalThis.fetch=async()=>Response.json({candidates:[{finishReason:'STOP',content:{parts:[{text:'{}'}]}}]});await assert.rejects(()=>perform('grammar',[],fakeKey,'gemini-test'),e=>e.status===502);
 globalThis.fetch=originalFetch;

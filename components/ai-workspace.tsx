@@ -45,7 +45,7 @@ export default function AIWorkspace({view,remember}:{view:View;remember:(message
       {!connected?<form className="mt-3 flex flex-wrap gap-3" onSubmit={e=>{e.preventDefault();void run('connect',async()=>{const cleanKey=normalizeApiKey(draftKey);const data=await request('connect',{},cleanKey);setKey(cleanKey);setDraftKey('');setConnected(true);setModel(data.model);});}}>
         <input aria-label="Gemini API key" type="password" autoComplete="off" spellCheck={false} maxLength={2048} value={draftKey} disabled={!!busy} onChange={e=>{setDraftKey(e.target.value);setError('');}} placeholder="Paste the full key using Google AI Studio’s Copy button" className="input min-w-48"/>
         <button className="primary" disabled={!!busy}>{busy==='connect'?'Checking…':'Connect Gemini'}</button>
-      </form>:<p className="mt-2 text-sm text-emerald-800">Key accepted · {model}. Generation remains subject to your Google quota.</p>}
+      </form>:<p className="mt-2 text-sm text-emerald-800">AI test response verified · {model}. Generation remains subject to your Google quota.</p>}
       <p className="mt-3 text-sm text-slate-500">Your key stays in this page’s memory and is sent securely to the backend and Google. Refreshing clears it. Text and uploads are sent to Gemini for analysis; this app does not save files. { !connected&&'Leave blank to use a server-configured key, if available.'}</p>
     </section>
     {error&&<div role="alert" className="mb-4 rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-800">{error}</div>}

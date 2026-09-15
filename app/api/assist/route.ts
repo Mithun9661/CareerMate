@@ -1,5 +1,5 @@
 import { env } from 'cloudflare:workers';
-import { ApiError, chooseModel, parseInput, perform } from '@/lib/ai-service';
+import { ApiError, chooseModel, parseInput, perform, verifyGeneration } from '@/lib/ai-service';
 import { clarificationFor } from '@/lib/grammar-safety';
 import { normalizeApiKey } from '@/lib/api-key';
 
@@ -17,7 +17,7 @@ export async function POST(request:Request){
     catch(error) { throw new ApiError(400,error instanceof Error?error.message:'Unable to read API key.'); }
     if(!key)throw new ApiError(503,'Gemini is not connected. Use Connect Gemini to enter your API key.');
     const model=await chooseModel(key,settings.GEMINI_MODEL,input.action==='connect');
-    if(input.action==='connect')return Response.json({connected:true,model},{headers});
+    if(input.action==='connect')return Response.json({connected:true,model:await verifyGeneration(key,model)},{headers});
     return Response.json(await perform(input.action,input.parts,key,model),{headers});
   }catch(error){
     const known=error instanceof ApiError;
